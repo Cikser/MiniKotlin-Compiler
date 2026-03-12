@@ -1,0 +1,166 @@
+fun factorial(n: Int): Int {
+    if (n <= 1) {
+        return 1
+    } else {
+        return n * factorial(n - 1)
+    }
+}
+
+fun fib(n: Int): Int {
+    if (n <= 1) {
+        return n
+    } else {
+        return fib(n - 1) + fib(n - 2)
+    }
+}
+
+fun doubleIt(n: Int): Int {
+    return n * 2
+}
+
+fun add(a: Int, b: Int): Int {
+    return a + b
+}
+
+fun max(a: Int, b: Int): Int {
+    if (a > b) {
+        return a
+    } else {
+        return b
+    }
+}
+
+fun abs(n: Int): Int {
+    if (n < 0) {
+        return 0 - n
+    } else {
+        return n
+    }
+}
+
+fun isEven(n: Int): Boolean {
+    if (n == 0) {
+        return true
+    } else {
+        return isOdd(n - 1)
+    }
+}
+
+fun isOdd(n: Int): Boolean {
+    if (n == 0) {
+        return false
+    } else {
+        return isEven(n - 1)
+    }
+}
+
+fun sumUpTo(n: Int): Int {
+    var i: Int = 0
+    var sum: Int = 0
+    while (i <= n) {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}
+
+fun power(base: Int, exp: Int): Int {
+    if (exp == 0) {
+        return 1
+    } else {
+        return base * power(base, exp - 1)
+    }
+}
+
+fun countDown(n: Int): Int {
+    if (n <= 0) {
+        return 0
+    } else {
+        return countDown(n - 1)
+    }
+}
+
+fun check(label: String, result: Boolean): Unit {
+    if (result) {
+        println(label)
+    } else {
+        println(label)
+    }
+}
+
+fun main(): Unit {
+    var r1: Int = factorial(5)
+    if (r1 == 120) { println("t01 passed") } else { println("t01 FAILED") }
+
+    var r2: Int = factorial(1)
+    if (r2 == 1) { println("t02 passed") } else { println("t02 FAILED") }
+
+    var r3: Int = factorial(0)
+    if (r3 == 1) { println("t03 passed") } else { println("t03 FAILED") }
+
+    var r4: Int = fib(10)
+    if (r4 == 55) { println("t04 passed") } else { println("t04 FAILED") }
+
+    var r5: Int = fib(0)
+    if (r5 == 0) { println("t05 passed") } else { println("t05 FAILED") }
+
+    var r6: Int = fib(1)
+    if (r6 == 1) { println("t06 passed") } else { println("t06 FAILED") }
+
+    var r7: Int = doubleIt(doubleIt(3))
+    if (r7 == 12) { println("t07 passed") } else { println("t07 FAILED") }
+
+    var r8: Int = add(3, 4)
+    if (r8 == 7) { println("t08 passed") } else { println("t08 FAILED") }
+
+    var r9: Int = add(factorial(3), factorial(4))
+    if (r9 == 30) { println("t09 passed") } else { println("t09 FAILED") }
+
+    var r10: Int = max(3, 7)
+    if (r10 == 7) { println("t10 passed") } else { println("t10 FAILED") }
+
+    var r11: Int = max(10, 2)
+    if (r11 == 10) { println("t11 passed") } else { println("t11 FAILED") }
+
+    var r12: Int = abs(0 - 5)
+    if (r12 == 5) { println("t12 passed") } else { println("t12 FAILED") }
+
+    var r13: Int = abs(5)
+    if (r13 == 5) { println("t13 passed") } else { println("t13 FAILED") }
+
+    var r14: Boolean = isEven(4)
+    if (r14) { println("t14 passed") } else { println("t14 FAILED") }
+
+    var r15: Boolean = isEven(7)
+    if (r15) { println("t15 FAILED") } else { println("t15 passed") }
+
+    var r16: Boolean = isOdd(3)
+    if (r16) { println("t16 passed") } else { println("t16 FAILED") }
+
+    var r17: Int = sumUpTo(10)
+    if (r17 == 55) { println("t17 passed") } else { println("t17 FAILED") }
+
+    var r18: Int = sumUpTo(0)
+    if (r18 == 0) { println("t18 passed") } else { println("t18 FAILED") }
+
+    var r19: Int = power(2, 10)
+    if (r19 == 1024) { println("t19 passed") } else { println("t19 FAILED") }
+
+    var r20: Int = power(3, 3)
+    if (r20 == 27) { println("t20 passed") } else { println("t20 FAILED") }
+
+    var r21: Int = power(5, 0)
+    if (r21 == 1) { println("t21 passed") } else { println("t21 FAILED") }
+
+    var r22: Int = countDown(100)
+    if (r22 == 0) { println("t22 passed") } else { println("t22 FAILED") }
+
+    var r23: Int = sumUpTo(4)
+    if (r23 == 10) { println("t23 passed") } else { println("t23 FAILED") }
+
+    var r24: Int = add(10, 10)
+    if (r24 == 20) { println("t24 passed") } else { println("t24 FAILED") }
+
+    var r25: Boolean = isEven(0)
+    if (r25) { println("t25 passed") } else { println("t25 FAILED") }
+}
