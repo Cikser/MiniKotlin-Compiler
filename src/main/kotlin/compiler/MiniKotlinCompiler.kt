@@ -44,7 +44,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             statementsStr += "\t".repeat(tabs) + compileStatement(statement) + "\n"
         }
         tabs--;
-        return "$statementsStr\t}"
+        return "$statementsStr${"\t".repeat(tabs)}}"
     }
 
     fun compileStatement(statement: MiniKotlinParser.StatementContext): String {
@@ -52,7 +52,10 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             statement.variableDeclaration() != null -> compileVariableDeclaration(statement.variableDeclaration())
             statement.variableAssignment() != null -> compileVariableAssignment(statement.variableAssignment())
             statement.returnStatement() != null -> compileReturnStatement(statement.returnStatement())
-            else -> "TODO"
+            statement.expression() != null -> compileExpression(statement.expression()) + ";"
+            statement.whileStatement() != null -> compileWhileStatement(statement.whileStatement())
+            statement.ifStatement() != null -> compileIfStatement(statement.ifStatement())
+            else -> throw IllegalArgumentException("unknown statement $statement")
         }
     }
 
@@ -76,8 +79,9 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val name = expression.IDENTIFIER().text
         val argList = expression.argumentList()?.expression() ?: emptyList()
         val argStr = argList.joinToString(", ")
-            {"${javaType(compileExpression(it))}"}
-        return "$name($argStr)"
+            { javaType(compileExpression(it)) }
+        return if(name != "println") {"$name($argStr)"}
+        else "System.out.println($argStr)"
     }
 
     fun compilePrimary(primary: MiniKotlinParser.PrimaryContext): String {
@@ -167,6 +171,23 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             expression = compileExpression(returnStatement.expression())
         }
         return "return $expression;"
+    }
+
+    fun compileWhileStatement(whileStatement: MiniKotlinParser.WhileStatementContext): String {
+        val expression = compileExpression(whileStatement.expression())
+        val block = compileBlock(whileStatement.block())
+        return "while ($expression) $block"
+    }
+
+    fun compileIfStatement(ifStatement: MiniKotlinParser.IfStatementContext): String {
+        val expression = compileExpression(ifStatement.expression())
+        val block = compileBlock(ifStatement.block()[0]);
+        var result = "if ($expression) $block"
+        if (ifStatement.ELSE() != null){
+            val elseBlock = compileBlock(ifStatement.block()[1])
+            result += " else $elseBlock"
+        }
+        return result
     }
 
 }

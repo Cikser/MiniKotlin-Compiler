@@ -1,0 +1,12 @@
+fun main(): Unit {
+    var x: Int = 0
+    while (x < 10) {
+        if((x % 5) == 0) {
+            println("Hello world!")
+        }
+        else {
+            println(x)
+        }
+        x = x + 1
+    }
+}
