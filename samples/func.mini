@@ -1,0 +1,7 @@
+fun foo(x: Int): Int{
+    return 0;
+}
+
+fun main(): Unit {
+    var x: Int = foo(1)
+}
