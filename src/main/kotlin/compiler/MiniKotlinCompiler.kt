@@ -60,14 +60,15 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         statements: List<MiniKotlinParser.StatementContext>,
         index: Int,
         indent: String,
-        scope: Map<String, String>
+        scope: Map<String, String>,
+        finalRest: String = ""
     ): String {
-        if (index >= statements.size) return ""
+        if (index >= statements.size) return finalRest
         val newScope = if (statements[index].variableDeclaration() != null) {
             val decl = statements[index].variableDeclaration()
             scope + (decl.IDENTIFIER().text to javaType(decl.type().text))
         } else scope
-        val rest = compileStatements(statements, index + 1, indent, newScope)
+        val rest = compileStatements(statements, index + 1, indent, newScope, finalRest)
         return compileStatement(statements[index], rest, indent, scope)
     }
 
@@ -223,35 +224,23 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         scope: Map<String, String>
     ): String {
         val condExpr = whileStatement.expression()
-
-        if (!containsCall(condExpr)) {
-            val cond = compileExpression(condExpr)
-            val block = compileWhileBlock(whileStatement.block(), indent, scope)
-            return "${indent}while ($cond) $block\n$rest"
-        }
-
         val n = whileCounter++
         val helperName = "__while_$n"
         val bodyIndent = "\t\t"
-
         val scopeParams = scope.entries.joinToString(", ") { "${it.value} ${it.key}" }
         val scopeArgs = scope.keys.joinToString(", ")
         val paramStr = if (scope.isEmpty()) "Continuation<Void> __k"
         else "$scopeParams, Continuation<Void> __k"
-        val argStr = if (scope.isEmpty()) "__k" else "$scopeArgs, __k"
-
-        val recurse = "$bodyIndent$helperName($argStr);\n"
+        val kArg = "__arg${allocArg()}"
+        val recurseArgs = if (scope.isEmpty()) "__k" else "$scopeArgs, __k"
+        val recurse = "$bodyIndent$helperName($recurseArgs);\n"
         val bodyStatements = whileStatement.block().statement()
-        val bodyCode = compileWhileBodyStatements(bodyStatements, 0, bodyIndent, scope, recurse)
-
+        val bodyCode = compileStatements(bodyStatements, 0, bodyIndent, scope, recurse)
         val helperBody = liftExpr(condExpr, bodyIndent) { cond ->
             "${bodyIndent}if ($cond) {\n$bodyCode${bodyIndent}}\n" +
-                    "${bodyIndent}else {\n$bodyIndent\t__k.accept(null);\n${bodyIndent}}\n"
+                    "${bodyIndent}else {\n${bodyIndent}\t__k.accept(null);\n${bodyIndent}}\n"
         }
-
         helperMethods.add("\tpublic static void $helperName($paramStr) {\n$helperBody\t}\n")
-
-        val kArg = "__arg${allocArg()}"
         val callArgs = if (scope.isEmpty()) "($kArg) -> {\n$rest$indent}"
         else "$scopeArgs, ($kArg) -> {\n$rest$indent}"
         return "$indent$helperName($callArgs);\n"
@@ -279,23 +268,25 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         indent: String,
         scope: Map<String, String>
     ): String {
-        return if (containsCall(ifStatement.expression())) {
-            liftExpr(ifStatement.expression(), indent) { cond ->
-                val block = compileIfBlock(ifStatement.block()[0], indent, scope)
-                var result = "${indent}if ($cond) $block"
-                if (ifStatement.ELSE() != null) {
-                    result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent, scope)}"
-                }
-                result + "\n$rest"
-            }
-        } else {
-            val expression = compileExpression(ifStatement.expression())
-            val block = compileIfBlock(ifStatement.block()[0], indent, scope)
-            var result = "${indent}if ($expression) $block"
+        val expr = ifStatement.expression()
+        val bodyIndent = "$indent\t"
+        val buildIf = { cond: String ->
+            val ifStatements = ifStatement.block(0).statement()
+            val ifBodyCode = compileStatements(ifStatements, 0, bodyIndent, scope, rest)
+            var result = "${indent}if ($cond) {\n$ifBodyCode$indent}"
             if (ifStatement.ELSE() != null) {
-                result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent, scope)}"
+                val elseStatements = ifStatement.block(1).statement()
+                val elseBodyCode = compileStatements(elseStatements, 0, bodyIndent, scope, rest)
+                result += " else {\n$elseBodyCode$indent}"
+            } else {
+                result += " else {\n$rest$indent}"
             }
-            result + "\n$rest"
+            result + "\n"
+        }
+        return if (containsCall(expr)) {
+            liftExpr(expr, indent) { cond -> buildIf(cond) }
+        } else {
+            buildIf(compileExpression(expr))
         }
     }
 
@@ -375,21 +366,4 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    fun compileWhileBlock(block: MiniKotlinParser.BlockContext, indent: String, scope: Map<String, String>): String {
-        val inner = "$indent\t"
-        val statements = block.statement()
-        val body = statements.joinToString("\n") {
-            compileStatement(it, "", inner, scope)
-        }
-        return "{\n$body\n$indent}"
-    }
-
-    fun compileIfBlock(block: MiniKotlinParser.BlockContext, indent: String, scope: Map<String, String>): String {
-        val inner = "$indent\t"
-        val statements = block.statement()
-        val body = statements.joinToString("\n") {
-            compileStatement(it, "", inner, scope)
-        }
-        return "{\n$body\n$indent}"
-    }
 }
