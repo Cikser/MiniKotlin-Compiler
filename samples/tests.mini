@@ -106,6 +106,22 @@ fun ifPrint(value: Int): Int {
     return value
 }
 
+fun shouldContinue(n: Int): Boolean {
+    return n > 0
+}
+
+fun decrement(n: Int): Int {
+    return n - 1
+}
+
+fun decToZero(counter: Int, iterations: Int): Int {
+    if (shouldContinue(counter)) {
+        return decToZero(decrement(counter), iterations + 1)
+    } else {
+        return iterations
+    }
+}
+
 fun main(): Unit {
     var r1: Int = factorial(5)
     if (r1 == 120) { println("t01 passed") } else { println("t01 FAILED") }
@@ -191,5 +207,8 @@ fun main(): Unit {
     if (isOdd(5)) { println("t28 passed") } else { println("t28 FAILED") }
 
     if (!isEven(5)) { println("t29 passed") } else { println("t29 FAILED") }
+
+    var r30: Int = decToZero(15, 0)
+    if (r30 == 15) { println("t30 passed") } else { println("t30 FAILED") }
 
 }

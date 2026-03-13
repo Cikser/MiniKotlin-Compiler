@@ -6,15 +6,19 @@ import MiniKotlinParser
 class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
 
     private var argCounter = 0
+    private var whileCounter = 0
+    private val helperMethods = mutableListOf<String>()
 
-    private fun allocArg(): Int { return argCounter++; }
+    private fun allocArg(): Int { return argCounter++ }
 
     fun compile(program: MiniKotlinParser.ProgramContext, className: String = "MiniProgram"): String {
+        helperMethods.clear()
         var functions = ""
         for (func in program.functionDeclaration()) {
             functions += compileFunction(func, "\t") + "\n\n"
         }
-        return "public class $className {\n\n$functions}"
+        val helpers = if (helperMethods.isEmpty()) "" else helperMethods.joinToString("\n") + "\n\n"
+        return "public class $className {\n\n$helpers$functions}"
     }
 
     fun javaType(kotlinType: String) = when (kotlinType) {
@@ -35,38 +39,55 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             paramList.joinToString(", ") { "${javaType(it.type().text)} ${it.IDENTIFIER().text}" } +
                     ", Continuation<$type> __continuation"
         }
-        val block = compileBlock(function.block(), indent)
+        val initialScope: Map<String, String> = paramList.associate {
+            it.IDENTIFIER().text to javaType(it.type().text)
+        }
+        val block = compileBlock(function.block(), indent, initialScope)
         return if (name == "main")
             "${indent}public static void main(String[] args) $block"
         else
             "${indent}public static void $name($paramStr) $block"
     }
 
-    fun compileBlock(block: MiniKotlinParser.BlockContext, indent: String): String {
+    fun compileBlock(block: MiniKotlinParser.BlockContext, indent: String, scope: Map<String, String>): String {
         val inner = "$indent\t"
         val statements = block.statement()
-        val result = "{\n" + compileStatements(statements, 0, inner) + "$indent}"
+        val result = "{\n" + compileStatements(statements, 0, inner, scope) + "$indent}"
         return result
     }
 
-    fun compileStatements(statements: List<MiniKotlinParser.StatementContext>, index: Int, indent: String): String {
+    fun compileStatements(
+        statements: List<MiniKotlinParser.StatementContext>,
+        index: Int,
+        indent: String,
+        scope: Map<String, String>
+    ): String {
         if (index >= statements.size) return ""
-        val rest = compileStatements(statements, index + 1, indent)
-        return compileStatement(statements[index], rest, indent)
+        val newScope = if (statements[index].variableDeclaration() != null) {
+            val decl = statements[index].variableDeclaration()
+            scope + (decl.IDENTIFIER().text to javaType(decl.type().text))
+        } else scope
+        val rest = compileStatements(statements, index + 1, indent, newScope)
+        return compileStatement(statements[index], rest, indent, scope)
     }
 
-    fun compileStatement(statement: MiniKotlinParser.StatementContext, rest: String, indent: String): String {
+    fun compileStatement(
+        statement: MiniKotlinParser.StatementContext,
+        rest: String,
+        indent: String,
+        scope: Map<String, String>
+    ): String {
         return when {
             statement.variableDeclaration() != null ->
-                compileVariableDeclaration(statement.variableDeclaration(), rest, indent)
+                compileVariableDeclaration(statement.variableDeclaration(), rest, indent, scope)
             statement.variableAssignment() != null ->
                 compileVariableAssignment(statement.variableAssignment(), rest, indent)
             statement.returnStatement() != null ->
                 indent + compileReturnStatement(statement.returnStatement(), indent)
             statement.whileStatement() != null ->
-                indent + compileWhileStatement(statement.whileStatement(), indent) + "\n" + rest
+                compileWhileStatement(statement.whileStatement(), rest, indent, scope)
             statement.ifStatement() != null ->
-                compileIfStatement(statement.ifStatement(), rest, indent)
+                compileIfStatement(statement.ifStatement(), rest, indent, scope)
             statement.expression() != null &&
                     statement.expression() is MiniKotlinParser.FunctionCallExprContext ->
                 compileFunctionCall(
@@ -80,7 +101,8 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     fun compileVariableDeclaration(
         varDecl: MiniKotlinParser.VariableDeclarationContext,
         rest: String,
-        indent: String
+        indent: String,
+        scope: Map<String, String>
     ): String {
         val type = javaType(varDecl.type().text)
         val name = varDecl.IDENTIFIER().text
@@ -170,7 +192,11 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return compileExpression(left) + " " + op + " " + compileExpression(right)
     }
 
-    fun compileVariableAssignment(varAssign: MiniKotlinParser.VariableAssignmentContext, rest: String, indent: String): String {
+    fun compileVariableAssignment(
+        varAssign: MiniKotlinParser.VariableAssignmentContext,
+        rest: String,
+        indent: String
+    ): String {
         val name = varAssign.IDENTIFIER().text
         return if (containsCall(varAssign.expression())) {
             liftExpr(varAssign.expression(), indent) { result ->
@@ -190,28 +216,84 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    fun compileWhileStatement(whileStatement: MiniKotlinParser.WhileStatementContext, indent: String): String {
-        val expression = compileExpression(whileStatement.expression())
-        val block = compileWhileBlock(whileStatement.block(), indent)
-        return "while ($expression) $block"
+    fun compileWhileStatement(
+        whileStatement: MiniKotlinParser.WhileStatementContext,
+        rest: String,
+        indent: String,
+        scope: Map<String, String>
+    ): String {
+        val condExpr = whileStatement.expression()
+
+        if (!containsCall(condExpr)) {
+            val cond = compileExpression(condExpr)
+            val block = compileWhileBlock(whileStatement.block(), indent, scope)
+            return "${indent}while ($cond) $block\n$rest"
+        }
+
+        val n = whileCounter++
+        val helperName = "__while_$n"
+        val bodyIndent = "\t\t"
+
+        val scopeParams = scope.entries.joinToString(", ") { "${it.value} ${it.key}" }
+        val scopeArgs = scope.keys.joinToString(", ")
+        val paramStr = if (scope.isEmpty()) "Continuation<Void> __k"
+        else "$scopeParams, Continuation<Void> __k"
+        val argStr = if (scope.isEmpty()) "__k" else "$scopeArgs, __k"
+
+        val recurse = "$bodyIndent$helperName($argStr);\n"
+        val bodyStatements = whileStatement.block().statement()
+        val bodyCode = compileWhileBodyStatements(bodyStatements, 0, bodyIndent, scope, recurse)
+
+        val helperBody = liftExpr(condExpr, bodyIndent) { cond ->
+            "${bodyIndent}if ($cond) {\n$bodyCode${bodyIndent}}\n" +
+                    "${bodyIndent}else {\n$bodyIndent\t__k.accept(null);\n${bodyIndent}}\n"
+        }
+
+        helperMethods.add("\tpublic static void $helperName($paramStr) {\n$helperBody\t}\n")
+
+        val kArg = "__arg${allocArg()}"
+        val callArgs = if (scope.isEmpty()) "($kArg) -> {\n$rest$indent}"
+        else "$scopeArgs, ($kArg) -> {\n$rest$indent}"
+        return "$indent$helperName($callArgs);\n"
     }
 
-    fun compileIfStatement(ifStatement: MiniKotlinParser.IfStatementContext, rest: String, indent: String): String {
+    fun compileWhileBodyStatements(
+        statements: List<MiniKotlinParser.StatementContext>,
+        index: Int,
+        indent: String,
+        scope: Map<String, String>,
+        recurse: String
+    ): String {
+        if (index >= statements.size) return recurse
+        val newScope = if (statements[index].variableDeclaration() != null) {
+            val decl = statements[index].variableDeclaration()
+            scope + (decl.IDENTIFIER().text to javaType(decl.type().text))
+        } else scope
+        val rest = compileWhileBodyStatements(statements, index + 1, indent, newScope, recurse)
+        return compileStatement(statements[index], rest, indent, scope)
+    }
+
+    fun compileIfStatement(
+        ifStatement: MiniKotlinParser.IfStatementContext,
+        rest: String,
+        indent: String,
+        scope: Map<String, String>
+    ): String {
         return if (containsCall(ifStatement.expression())) {
             liftExpr(ifStatement.expression(), indent) { cond ->
-                val block = compileIfBlock(ifStatement.block()[0], indent)
+                val block = compileIfBlock(ifStatement.block()[0], indent, scope)
                 var result = "${indent}if ($cond) $block"
                 if (ifStatement.ELSE() != null) {
-                    result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent)}"
+                    result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent, scope)}"
                 }
                 result + "\n$rest"
             }
         } else {
             val expression = compileExpression(ifStatement.expression())
-            val block = compileIfBlock(ifStatement.block()[0], indent)
+            val block = compileIfBlock(ifStatement.block()[0], indent, scope)
             var result = "${indent}if ($expression) $block"
             if (ifStatement.ELSE() != null) {
-                result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent)}"
+                result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent, scope)}"
             }
             result + "\n$rest"
         }
@@ -293,20 +375,20 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         }
     }
 
-    fun compileWhileBlock(block: MiniKotlinParser.BlockContext, indent: String): String {
+    fun compileWhileBlock(block: MiniKotlinParser.BlockContext, indent: String, scope: Map<String, String>): String {
         val inner = "$indent\t"
         val statements = block.statement()
         val body = statements.joinToString("\n") {
-            compileStatement(it, "", inner)
+            compileStatement(it, "", inner, scope)
         }
         return "{\n$body\n$indent}"
     }
 
-    fun compileIfBlock(block: MiniKotlinParser.BlockContext, indent: String): String {
+    fun compileIfBlock(block: MiniKotlinParser.BlockContext, indent: String, scope: Map<String, String>): String {
         val inner = "$indent\t"
         val statements = block.statement()
         val body = statements.joinToString("\n") {
-            compileStatement(it, "", inner)
+            compileStatement(it, "", inner, scope)
         }
         return "{\n$body\n$indent}"
     }
