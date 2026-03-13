@@ -58,6 +58,7 @@ fun sumUpTo(n: Int): Int {
     var i: Int = 0
     var sum: Int = 0
     while (i <= n) {
+        println(i)
         sum = sum + i
         i = i + 1
     }
@@ -86,6 +87,23 @@ fun check(label: String, result: Boolean): Unit {
     } else {
         println(label)
     }
+}
+
+fun logAndReturn(value: Int, msg: String): Int {
+    println(msg)
+    return value
+}
+
+fun ifPrint(value: Int): Int {
+    if(value % 2 == 0){
+        println("even")
+        value = value + 2
+    }
+    else{
+        println("odd")
+        value = value + 1
+    }
+    return value
 }
 
 fun main(): Unit {
@@ -163,4 +181,11 @@ fun main(): Unit {
 
     var r25: Boolean = isEven(0)
     if (r25) { println("t25 passed") } else { println("t25 FAILED") }
+
+    var r26: Int = add(logAndReturn(1, "first"), logAndReturn(2, "second"))
+    if (r26 == 3) { println("t26 passed") } else { println("t26 FAILED") }
+
+    var r27: Int = ifPrint(5) + ifPrint(4)
+    if (r27 == 12) { println("t27 passed") } else { println("t27 FAILED") }
+
 }

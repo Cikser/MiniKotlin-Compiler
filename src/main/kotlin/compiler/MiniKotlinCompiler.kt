@@ -5,7 +5,7 @@ import MiniKotlinParser
 
 class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
 
-    private var argCounter = 0;
+    private var argCounter = 0
 
     private fun allocArg(): Int { return argCounter++; }
 
@@ -60,7 +60,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             statement.variableDeclaration() != null ->
                 compileVariableDeclaration(statement.variableDeclaration(), rest, indent)
             statement.variableAssignment() != null ->
-                indent + compileVariableAssignment(statement.variableAssignment(), indent) + "\n" + rest
+                compileVariableAssignment(statement.variableAssignment(), rest, indent)
             statement.returnStatement() != null ->
                 indent + compileReturnStatement(statement.returnStatement(), indent)
             statement.whileStatement() != null ->
@@ -84,11 +84,10 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     ): String {
         val type = javaType(varDecl.type().text)
         val name = varDecl.IDENTIFIER().text
-        return if (varDecl.expression() is MiniKotlinParser.FunctionCallExprContext) {
-            compileFunctionCall(
-                varDecl.expression() as MiniKotlinParser.FunctionCallExprContext,
-                rest, indent, name
-            )
+        return if (containsCall(varDecl.expression())) {
+            liftExpr(varDecl.expression(), indent) { result ->
+                "$indent$type $name = $result;\n$rest"
+            }
         } else {
             "$indent$type $name = ${compileExpression(varDecl.expression())};\n$rest"
         }
@@ -171,10 +170,15 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return compileExpression(left) + " " + op + " " + compileExpression(right)
     }
 
-    fun compileVariableAssignment(varAssign: MiniKotlinParser.VariableAssignmentContext, indent: String): String {
+    fun compileVariableAssignment(varAssign: MiniKotlinParser.VariableAssignmentContext, rest: String, indent: String): String {
         val name = varAssign.IDENTIFIER().text
-        val expression = compileExpression(varAssign.expression())
-        return "$name = $expression;"
+        return if (containsCall(varAssign.expression())) {
+            liftExpr(varAssign.expression(), indent) { result ->
+                "$indent$name = $result;\n$rest"
+            }
+        } else {
+            "$indent$name = ${compileExpression(varAssign.expression())};\n$rest"
+        }
     }
 
     fun compileReturnStatement(returnStatement: MiniKotlinParser.ReturnStatementContext, indent: String): String {
@@ -188,16 +192,16 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
 
     fun compileWhileStatement(whileStatement: MiniKotlinParser.WhileStatementContext, indent: String): String {
         val expression = compileExpression(whileStatement.expression())
-        val block = compileBlock(whileStatement.block(), indent)
+        val block = compileWhileBlock(whileStatement.block(), indent)
         return "while ($expression) $block"
     }
 
     fun compileIfStatement(ifStatement: MiniKotlinParser.IfStatementContext, rest: String, indent: String): String {
         val expression = compileExpression(ifStatement.expression())
-        val block = compileBlock(ifStatement.block()[0], indent)
+        val block = compileIfBlock(ifStatement.block()[0], indent)
         var result = "${indent}if ($expression) $block"
         if (ifStatement.ELSE() != null) {
-            val elseBlock = compileBlock(ifStatement.block()[1], indent)
+            val elseBlock = compileIfBlock(ifStatement.block()[1], indent)
             result += "\n${indent}else $elseBlock"
         }
         result += "\n$rest"
@@ -236,9 +240,12 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
                 val tmp = "__arg${allocArg()}"
                 val funcName = if (expression.IDENTIFIER().text == "println") "Prelude.println"
                 else expression.IDENTIFIER().text
-                val argStr = expression.argumentList().expression().joinToString(", ") { compileExpression(it) }
+                val argList = expression.argumentList()?.expression() ?: emptyList()
                 val inner = "$indent\t"
-                "$indent$funcName($argStr, ($tmp) -> {\n$inner${consume(tmp)}\n$indent});"
+                liftArgs(argList, 0, indent, emptyList()) { argExprs ->
+                    val argStr = argExprs.joinToString(", ")
+                    "$indent$funcName($argStr, ($tmp) -> {\n$inner${consume(tmp)}\n$indent});"
+                }
             }
             expression is MiniKotlinParser.MulDivExprContext ||
                     expression is MiniKotlinParser.AddSubExprContext ||
@@ -275,5 +282,23 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return liftExpr(args[index], indent) { argCode ->
             liftArgs(args, index + 1, indent, acc + argCode, consume)
         }
+    }
+
+    fun compileWhileBlock(block: MiniKotlinParser.BlockContext, indent: String): String {
+        val inner = "$indent\t"
+        val statements = block.statement()
+        val body = statements.joinToString("\n") {
+            compileStatement(it, "", inner)
+        }
+        return "{\n$body\n$indent}"
+    }
+
+    fun compileIfBlock(block: MiniKotlinParser.BlockContext, indent: String): String {
+        val inner = "$indent\t"
+        val statements = block.statement()
+        val body = statements.joinToString("\n") {
+            compileStatement(it, "", inner)
+        }
+        return "{\n$body\n$indent}"
     }
 }
