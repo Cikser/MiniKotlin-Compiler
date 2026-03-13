@@ -1,0 +1,312 @@
+fun factorial(n: Int): Int {
+    if (n <= 1) {
+        return 1
+    } else {
+        return n * factorial(n - 1)
+    }
+}
+
+fun fib(n: Int): Int {
+    if (n <= 1) {
+        return n
+    } else {
+        return fib(n - 1) + fib(n - 2)
+    }
+}
+
+fun doubleIt(n: Int): Int {
+    return n * 2
+}
+
+fun add(a: Int, b: Int): Int {
+    return a + b
+}
+
+fun isEven(n: Int): Boolean {
+    if (n == 0) {
+        return true
+    } else {
+        return isOdd(n - 1)
+    }
+}
+
+fun isOdd(n: Int): Boolean {
+    if (n == 0) {
+        return false
+    } else {
+        return isEven(n - 1)
+    }
+}
+
+fun identity(n: Int): Int {
+    return n
+}
+
+fun shouldContinue(n: Int): Boolean {
+    return n > 0
+}
+
+fun decrement(n: Int): Int {
+    return n - 1
+}
+
+fun max(a: Int, b: Int): Int {
+    if (a > b) {
+        return a
+    } else {
+        return b
+    }
+}
+
+fun min(a: Int, b: Int): Int {
+    if (a < b) {
+        return a
+    } else {
+        return b
+    }
+}
+
+fun testAssignment1(dummy: Int): Int {
+    var x: Int = 0
+    x = factorial(5)
+    return x
+}
+
+fun testAssignment2(dummy: Int): Int {
+    var x: Int = 0
+    x = factorial(3) + factorial(4)
+    return x
+}
+
+fun testAssignment3(dummy: Int): Int {
+    var x: Int = 0
+    var y: Int = 0
+    x = factorial(3)
+    y = factorial(4)
+    return x + y
+}
+
+fun testAssignment4(dummy: Int): Int {
+    var x: Int = 0
+    x = doubleIt(doubleIt(3))
+    return x
+}
+
+fun testDeepArgs1(dummy: Int): Int {
+    return add(doubleIt(doubleIt(2)), doubleIt(doubleIt(3)))
+}
+
+fun testDeepArgs2(dummy: Int): Int {
+    return add(factorial(add(1, 2)), factorial(add(2, 1)))
+}
+
+fun testDeepArgs3(dummy: Int): Int {
+    return doubleIt(add(factorial(3), factorial(3)))
+}
+
+fun testNestedIf1(n: Int): Int {
+    if (isEven(n)) {
+        if (isOdd(n + 1)) {
+            return 1
+        } else {
+            return 2
+        }
+    } else {
+        return 3
+    }
+}
+
+fun testNestedIf2(n: Int): Boolean {
+    if (isEven(n)) {
+        return isOdd(n + 1)
+    } else {
+        return isEven(n + 1)
+    }
+}
+
+fun countDownWhile(n: Int): Int {
+    var counter: Int = n
+    while (shouldContinue(counter)) {
+        counter = counter - 1
+    }
+    return counter
+}
+
+fun sumWhileCond(n: Int): Int {
+    var i: Int = n
+    var acc: Int = 0
+    while (shouldContinue(i)) {
+        acc = acc + i
+        i = decrement(i)
+    }
+    return acc
+}
+
+fun nestedWhile(n: Int): Int {
+    var i: Int = 0
+    var total: Int = 0
+    while (i < n) {
+        var j: Int = 0
+        while (j < n) {
+            total = total + 1
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return total
+}
+
+fun whileFuncCondAndBody(n: Int): Int {
+    var counter: Int = n
+    var result: Int = 0
+    while (shouldContinue(counter)) {
+        result = result + identity(counter)
+        counter = decrement(counter)
+    }
+    return result
+}
+
+fun sumEvens(n: Int): Int {
+    var i: Int = 0
+    var acc: Int = 0
+    while (i <= n) {
+        if (isEven(i)) {
+            acc = acc + i
+        } else {
+            acc = acc + 0
+        }
+        i = i + 1
+    }
+    return acc
+}
+
+fun whileInsideIf(n: Int): Int {
+    if (isEven(n)) {
+        var i: Int = 0
+        var acc: Int = 0
+        while (i < n) {
+            acc = acc + i
+            i = i + 1
+        }
+        return acc
+    } else {
+        return 0 - 1
+    }
+}
+
+fun multipleSeq(dummy: Int): Int {
+    var a: Int = factorial(3)
+    var b: Int = factorial(4)
+    var c: Int = add(a, b)
+    return c
+}
+
+fun condFromCall(n: Int): Int {
+    if (isEven(factorial(n))) {
+        return 1
+    } else {
+        return 0
+    }
+}
+
+fun notCall(n: Int): Boolean {
+    return !isEven(n)
+}
+
+fun chainedAssign(dummy: Int): Int {
+    var x: Int = 0
+    x = factorial(3)
+    x = x + factorial(2)
+    x = x + factorial(1)
+    return x
+}
+
+fun main(): Unit {
+    var r1: Int = testAssignment1(0)
+    if (r1 == 120) { println("t01 passed") } else { println("t01 FAILED") }
+
+    var r2: Int = testAssignment2(0)
+    if (r2 == 30) { println("t02 passed") } else { println("t02 FAILED") }
+
+    var r3: Int = testAssignment3(0)
+    if (r3 == 30) { println("t03 passed") } else { println("t03 FAILED") }
+
+    var r4: Int = testAssignment4(0)
+    if (r4 == 12) { println("t04 passed") } else { println("t04 FAILED") }
+
+    var r5: Int = testDeepArgs1(0)
+    if (r5 == 20) { println("t05 passed") } else { println("t05 FAILED") }
+
+    var r6: Int = testDeepArgs2(0)
+    if (r6 == 12) { println("t06 passed") } else { println("t06 FAILED") }
+
+    var r7: Int = testDeepArgs3(0)
+    if (r7 == 24) { println("t07 passed") } else { println("t07 FAILED") }
+
+    var r8: Int = testNestedIf1(4)
+    if (r8 == 1) { println("t08 passed") } else { println("t08 FAILED") }
+
+    var r9: Int = testNestedIf1(3)
+    if (r9 == 3) { println("t09 passed") } else { println("t09 FAILED") }
+
+    var r10: Boolean = testNestedIf2(4)
+    if (r10) { println("t10 passed") } else { println("t10 FAILED") }
+
+    var r11: Int = countDownWhile(10)
+    if (r11 == 0) { println("t11 passed") } else { println("t11 FAILED") }
+
+    var r12: Int = sumWhileCond(5)
+    if (r12 == 15) { println("t12 passed") } else { println("t12 FAILED") }
+
+    var r13: Int = nestedWhile(4)
+    if (r13 == 16) { println("t13 passed") } else { println("t13 FAILED") }
+
+    var r14: Int = whileFuncCondAndBody(5)
+    if (r14 == 15) { println("t14 passed") } else { println("t14 FAILED") }
+
+    var r15: Int = sumEvens(6)
+    if (r15 == 12) { println("t15 passed") } else { println("t15 FAILED") }
+
+    var r16: Int = whileInsideIf(4)
+    if (r16 == 6) { println("t16 passed") } else { println("t16 FAILED") }
+
+    var r17: Int = whileInsideIf(3)
+    if (r17 == 0 - 1) { println("t17 passed") } else { println("t17 FAILED") }
+
+    var r18: Int = multipleSeq(0)
+    if (r18 == 30) { println("t18 passed") } else { println("t18 FAILED") }
+
+    var r19: Int = condFromCall(2)
+    if (r19 == 1) { println("t19 passed") } else { println("t19 FAILED") }
+
+    var r20: Int = condFromCall(3)
+    if (r20 == 1) { println("t20 passed") } else { println("t20 FAILED") }
+
+    var r21: Boolean = notCall(3)
+    if (r21) { println("t21 passed") } else { println("t21 FAILED") }
+
+    var r22: Boolean = notCall(4)
+    if (r22) { println("t22 FAILED") } else { println("t22 passed") }
+
+    var r23: Int = chainedAssign(0)
+    if (r23 == 9) { println("t23 passed") } else { println("t23 FAILED") }
+
+    var r24: Int = add(factorial(3), factorial(4))
+    if (r24 == 30) { println("t24 passed") } else { println("t24 FAILED") }
+
+    var r25: Int = doubleIt(add(2, 3))
+    if (r25 == 10) { println("t25 passed") } else { println("t25 FAILED") }
+
+    if (isEven(factorial(4))) { println("t26 passed") } else { println("t26 FAILED") }
+
+    if (!isOdd(factorial(4))) { println("t27 passed") } else { println("t27 FAILED") }
+
+    var r28: Int = max(factorial(3), factorial(4))
+    if (r28 == 24) { println("t28 passed") } else { println("t28 FAILED") }
+
+    var r29: Int = min(factorial(3), factorial(4))
+    if (r29 == 6) { println("t29 passed") } else { println("t29 FAILED") }
+
+    var r30: Int = countDownWhile(0)
+    if (r30 == 0) { println("t30 passed") } else { println("t30 FAILED") }
+}

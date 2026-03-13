@@ -7,12 +7,18 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
 
     private var argCounter = 0
     private var whileCounter = 0
+    private var joinCounter = 0
     private val helperMethods = mutableListOf<String>()
 
     private fun allocArg(): Int { return argCounter++ }
+    private fun allocWhile(): Int { return whileCounter++ }
+    private fun allocJoin(): Int { return joinCounter++ }
 
     fun compile(program: MiniKotlinParser.ProgramContext, className: String = "MiniProgram"): String {
         helperMethods.clear()
+        argCounter = 0
+        whileCounter = 0
+        joinCounter = 0
         var functions = ""
         for (func in program.functionDeclaration()) {
             functions += compileFunction(func, "\t") + "\n\n"
@@ -29,31 +35,45 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         else -> kotlinType
     }
 
-    fun compileFunction(function: MiniKotlinParser.FunctionDeclarationContext, indent: String): String {
+    fun compileFunction(
+        function: MiniKotlinParser.FunctionDeclarationContext,
+        indent: String
+    ): String {
         val name = function.IDENTIFIER().text
         val type = javaType(function.type().text)
         val paramList = function.parameterList()?.parameter() ?: emptyList()
-        val paramStr = if (paramList.isEmpty()) {
+        val initialScope: Map<String, String> = paramList.associate {
+            it.IDENTIFIER().text to (javaType(it.type().text) + "[]")
+        }
+        val shadowParams = paramList.joinToString("\n") {
+            val pName = it.IDENTIFIER().text
+            val pType = javaType(it.type().text)
+            "$indent\tfinal $pType[] $pName = { _$pName };"
+        }
+        val paramStrWithShadow = if (paramList.isEmpty()) {
             "Continuation<$type> __continuation"
         } else {
-            paramList.joinToString(", ") { "${javaType(it.type().text)} ${it.IDENTIFIER().text}" } +
+            paramList.joinToString(", ") { "${javaType(it.type().text)} _${it.IDENTIFIER().text}" } +
                     ", Continuation<$type> __continuation"
         }
-        val initialScope: Map<String, String> = paramList.associate {
-            it.IDENTIFIER().text to javaType(it.type().text)
-        }
-        val block = compileBlock(function.block(), indent, initialScope)
+        val block = compileBlock(function.block(), "", indent, initialScope)
+        val finalBlock = if (shadowParams.isEmpty()) block
+        else "{\n$shadowParams\n${block.substring(1)}"
+
         return if (name == "main")
             "${indent}public static void main(String[] args) $block"
         else
-            "${indent}public static void $name($paramStr) $block"
+            "${indent}public static void $name($paramStrWithShadow) $finalBlock"
     }
 
-    fun compileBlock(block: MiniKotlinParser.BlockContext, indent: String, scope: Map<String, String>): String {
-        val inner = "$indent\t"
-        val statements = block.statement()
-        val result = "{\n" + compileStatements(statements, 0, inner, scope) + "$indent}"
-        return result
+    fun compileBlock(
+        block: MiniKotlinParser.BlockContext,
+        rest: String,
+        indent: String,
+        scope: Map<String, String>
+    ): String {
+        val innerCode = compileStatements(block.statement(), 0, "$indent\t", scope, rest)
+        return "{\n$innerCode$indent}"
     }
 
     fun compileStatements(
@@ -66,7 +86,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         if (index >= statements.size) return finalRest
         val newScope = if (statements[index].variableDeclaration() != null) {
             val decl = statements[index].variableDeclaration()
-            scope + (decl.IDENTIFIER().text to javaType(decl.type().text))
+            scope + (decl.IDENTIFIER().text to javaType(decl.type().text) + "[]")
         } else scope
         val rest = compileStatements(statements, index + 1, indent, newScope, finalRest)
         return compileStatement(statements[index], rest, indent, scope)
@@ -82,9 +102,9 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             statement.variableDeclaration() != null ->
                 compileVariableDeclaration(statement.variableDeclaration(), rest, indent, scope)
             statement.variableAssignment() != null ->
-                compileVariableAssignment(statement.variableAssignment(), rest, indent)
+                compileVariableAssignment(statement.variableAssignment(), rest, indent, scope)
             statement.returnStatement() != null ->
-                indent + compileReturnStatement(statement.returnStatement(), indent)
+                indent + compileReturnStatement(statement.returnStatement(), indent, scope)
             statement.whileStatement() != null ->
                 compileWhileStatement(statement.whileStatement(), rest, indent, scope)
             statement.ifStatement() != null ->
@@ -93,7 +113,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
                     statement.expression() is MiniKotlinParser.FunctionCallExprContext ->
                 compileFunctionCall(
                     statement.expression() as MiniKotlinParser.FunctionCallExprContext,
-                    rest, indent
+                    rest, indent, scope
                 )
             else -> throw IllegalArgumentException("unknown statement $statement")
         }
@@ -108,19 +128,22 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val type = javaType(varDecl.type().text)
         val name = varDecl.IDENTIFIER().text
         return if (containsCall(varDecl.expression())) {
-            liftExpr(varDecl.expression(), indent) { result ->
-                "$indent$type $name = $result;\n$rest"
+            liftExpr(varDecl.expression(), indent, scope) { result ->
+                "$indent$type[] $name = { $result };\n$rest"
             }
         } else {
-            "$indent$type $name = ${compileExpression(varDecl.expression())};\n$rest"
+            "$indent$type[] $name = { ${compileExpression(varDecl.expression(), scope)} };\n$rest"
         }
     }
 
-    fun compileExpression(expression: MiniKotlinParser.ExpressionContext): String {
+    fun compileExpression(
+        expression: MiniKotlinParser.ExpressionContext,
+        scope: Map<String, String>
+    ): String {
         return when (expression) {
-            is MiniKotlinParser.PrimaryExprContext -> compilePrimary(expression.primary())
-            is MiniKotlinParser.NotExprContext -> "!" + compileExpression(expression.expression())
-            else -> compileBinExpression(expression)
+            is MiniKotlinParser.PrimaryExprContext -> compilePrimary(expression.primary(), scope)
+            is MiniKotlinParser.NotExprContext -> "!" + compileExpression(expression.expression(), scope)
+            else -> compileBinExpression(expression, scope)
         }
     }
 
@@ -128,58 +151,68 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         expression: MiniKotlinParser.FunctionCallExprContext,
         rest: String,
         indent: String,
+        scope: Map<String, String>,
         arg: String = "__arg${allocArg()}"
     ): String {
         var name = expression.IDENTIFIER().text
         val argList = expression.argumentList()?.expression() ?: emptyList()
         if (name == "println") name = "Prelude.println"
-        return liftArgs(argList, 0, indent, emptyList()) { argExprs ->
+        return liftArgs(argList, 0, indent, emptyList(), scope) { argExprs ->
             val argStr = argExprs.joinToString(", ")
             "$indent$name($argStr, ($arg) -> {\n$rest$indent});\n"
         }
     }
 
-    fun compilePrimary(primary: MiniKotlinParser.PrimaryContext): String {
+    fun compilePrimary(
+        primary: MiniKotlinParser.PrimaryContext,
+        scope: Map<String, String>
+    ): String {
         return when (primary) {
             is MiniKotlinParser.IntLiteralContext -> primary.INTEGER_LITERAL().text
             is MiniKotlinParser.BoolLiteralContext -> primary.BOOLEAN_LITERAL().text
             is MiniKotlinParser.StringLiteralContext -> primary.STRING_LITERAL().text
-            is MiniKotlinParser.IdentifierExprContext -> primary.IDENTIFIER().text
-            is MiniKotlinParser.ParenExprContext -> "(" + compileExpression(primary.expression()) + ")"
+            is MiniKotlinParser.IdentifierExprContext -> {
+                val name = primary.IDENTIFIER().text
+                if (scope[name]?.endsWith("[]") == true) "$name[0]" else name
+            }
+            is MiniKotlinParser.ParenExprContext -> "(" + compileExpression(primary.expression(), scope) + ")"
             else -> throw IllegalArgumentException("invalid primary expression")
         }
     }
 
-    fun compileBinExpression(expression: MiniKotlinParser.ExpressionContext): String {
+    fun compileBinExpression(
+        expression: MiniKotlinParser.ExpressionContext,
+        scope: Map<String, String>
+    ): String {
         return when (expression) {
             is MiniKotlinParser.MulDivExprContext -> when {
-                expression.DIV() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "/")
-                expression.MULT() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "*")
-                expression.MOD() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "%")
+                expression.DIV() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "/", scope)
+                expression.MULT() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "*", scope)
+                expression.MOD() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "%", scope)
                 else -> throw IllegalArgumentException("invalid bin expression")
             }
             is MiniKotlinParser.AddSubExprContext -> when {
-                expression.PLUS() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "+")
-                expression.MINUS() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "-")
+                expression.PLUS() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "+", scope)
+                expression.MINUS() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "-", scope)
                 else -> throw IllegalArgumentException("invalid bin expression")
             }
             is MiniKotlinParser.ComparisonExprContext -> when {
-                expression.GE() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), ">=")
-                expression.GT() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), ">")
-                expression.LT() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "<")
-                expression.LE() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "<=")
+                expression.GE() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), ">=", scope)
+                expression.GT() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), ">", scope)
+                expression.LT() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "<", scope)
+                expression.LE() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "<=", scope)
                 else -> throw IllegalArgumentException("invalid comparison expression")
             }
             is MiniKotlinParser.EqualityExprContext -> when {
-                expression.EQ() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "==")
-                expression.NEQ() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "!=")
+                expression.EQ() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "==", scope)
+                expression.NEQ() != null -> resolveBinExpression(expression.expression(0), expression.expression(1), "!=", scope)
                 else -> throw IllegalArgumentException("invalid equality expression")
             }
             is MiniKotlinParser.AndExprContext ->
-                if (expression.AND() != null) resolveBinExpression(expression.expression(0), expression.expression(1), "&&")
+                if (expression.AND() != null) resolveBinExpression(expression.expression(0), expression.expression(1), "&&", scope)
                 else throw IllegalArgumentException("invalid bin expression")
             is MiniKotlinParser.OrExprContext ->
-                if (expression.OR() != null) resolveBinExpression(expression.expression(0), expression.expression(1), "||")
+                if (expression.OR() != null) resolveBinExpression(expression.expression(0), expression.expression(1), "||", scope)
                 else throw IllegalArgumentException("invalid bin expression")
             else -> throw IllegalArgumentException("invalid expression")
         }
@@ -188,31 +221,40 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     fun resolveBinExpression(
         left: MiniKotlinParser.ExpressionContext,
         right: MiniKotlinParser.ExpressionContext,
-        op: String
+        op: String,
+        scope: Map<String, String>
     ): String {
-        return compileExpression(left) + " " + op + " " + compileExpression(right)
+        return compileExpression(left, scope) + " " + op + " " + compileExpression(right, scope)
     }
 
     fun compileVariableAssignment(
         varAssign: MiniKotlinParser.VariableAssignmentContext,
         rest: String,
-        indent: String
+        indent: String,
+        scope: Map<String, String>
     ): String {
         val name = varAssign.IDENTIFIER().text
+        val isArray = scope[name]?.endsWith("[]") == true
+        val target = if (isArray) "$name[0]" else name
+
         return if (containsCall(varAssign.expression())) {
-            liftExpr(varAssign.expression(), indent) { result ->
-                "$indent$name = $result;\n$rest"
+            liftExpr(varAssign.expression(), indent, scope) { result ->
+                "$indent$target = $result;\n$rest"
             }
         } else {
-            "$indent$name = ${compileExpression(varAssign.expression())};\n$rest"
+            "$indent$target = ${compileExpression(varAssign.expression(), scope)};\n$rest"
         }
     }
 
-    fun compileReturnStatement(returnStatement: MiniKotlinParser.ReturnStatementContext, indent: String): String {
+    fun compileReturnStatement(
+        returnStatement: MiniKotlinParser.ReturnStatementContext,
+        indent: String,
+        scope: Map<String, String>
+    ): String {
         if (returnStatement.expression() == null) {
             return "__continuation.accept(null);\n${indent}return;"
         }
-        return liftExpr(returnStatement.expression(), indent) { result ->
+        return liftExpr(returnStatement.expression(), indent, scope) { result ->
             "__continuation.accept($result);\n${indent}return;"
         }
     }
@@ -224,8 +266,7 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         scope: Map<String, String>
     ): String {
         val condExpr = whileStatement.expression()
-        val n = whileCounter++
-        val helperName = "__while_$n"
+        val helperName = "__while_${allocWhile()}"
         val bodyIndent = "\t\t"
         val scopeParams = scope.entries.joinToString(", ") { "${it.value} ${it.key}" }
         val scopeArgs = scope.keys.joinToString(", ")
@@ -234,9 +275,8 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         val kArg = "__arg${allocArg()}"
         val recurseArgs = if (scope.isEmpty()) "__k" else "$scopeArgs, __k"
         val recurse = "$bodyIndent$helperName($recurseArgs);\n"
-        val bodyStatements = whileStatement.block().statement()
-        val bodyCode = compileStatements(bodyStatements, 0, bodyIndent, scope, recurse)
-        val helperBody = liftExpr(condExpr, bodyIndent) { cond ->
+        val bodyCode = compileBlock(whileStatement.block(), recurse, indent, scope)
+        val helperBody = liftExpr(condExpr, bodyIndent, scope) { cond ->
             "${bodyIndent}if ($cond) {\n$bodyCode${bodyIndent}}\n" +
                     "${bodyIndent}else {\n${bodyIndent}\t__k.accept(null);\n${bodyIndent}}\n"
         }
@@ -246,47 +286,30 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         return "$indent$helperName($callArgs);\n"
     }
 
-    fun compileWhileBodyStatements(
-        statements: List<MiniKotlinParser.StatementContext>,
-        index: Int,
-        indent: String,
-        scope: Map<String, String>,
-        recurse: String
-    ): String {
-        if (index >= statements.size) return recurse
-        val newScope = if (statements[index].variableDeclaration() != null) {
-            val decl = statements[index].variableDeclaration()
-            scope + (decl.IDENTIFIER().text to javaType(decl.type().text))
-        } else scope
-        val rest = compileWhileBodyStatements(statements, index + 1, indent, newScope, recurse)
-        return compileStatement(statements[index], rest, indent, scope)
-    }
-
     fun compileIfStatement(
-        ifStatement: MiniKotlinParser.IfStatementContext,
+        ifStmt: MiniKotlinParser.IfStatementContext,
         rest: String,
         indent: String,
         scope: Map<String, String>
     ): String {
-        val expr = ifStatement.expression()
-        val bodyIndent = "$indent\t"
-        val buildIf = { cond: String ->
-            val ifStatements = ifStatement.block(0).statement()
-            val ifBodyCode = compileStatements(ifStatements, 0, bodyIndent, scope, rest)
-            var result = "${indent}if ($cond) {\n$ifBodyCode$indent}"
-            if (ifStatement.ELSE() != null) {
-                val elseStatements = ifStatement.block(1).statement()
-                val elseBodyCode = compileStatements(elseStatements, 0, bodyIndent, scope, rest)
-                result += " else {\n$elseBodyCode$indent}"
+        return liftExpr(ifStmt.expression(), indent, scope) { condition ->
+            if (rest.trim().isEmpty()) {
+                val thenPart = compileBlock(ifStmt.block(0), "", indent, scope)
+                val elsePart = if (ifStmt.block().size > 1) {
+                    " else " + compileBlock(ifStmt.block(1), "", indent, scope)
+                } else ""
+                "${indent}if ($condition) $thenPart$elsePart"
             } else {
-                result += " else {\n$rest$indent}"
+                val joinName = "__join_${allocJoin()}"
+                val joinPointDef = "${indent}Continuation<Void> $joinName = (__arg${allocArg()}) -> {\n$rest$indent};\n"
+                val callJoin = "$indent$joinName.accept(null);\n${indent}return;\n"
+
+                val thenPart = compileBlock(ifStmt.block(0), callJoin, indent, scope)
+                val elsePart = if (ifStmt.block().size > 1) {
+                    compileBlock(ifStmt.block(1), callJoin, indent, scope)
+                } else "{\n$callJoin$indent}"
+                "$joinPointDef\n${indent}if ($condition) $thenPart else $elsePart"
             }
-            result + "\n"
-        }
-        return if (containsCall(expr)) {
-            liftExpr(expr, indent) { cond -> buildIf(cond) }
-        } else {
-            buildIf(compileExpression(expr))
         }
     }
 
@@ -314,17 +337,18 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     fun liftExpr(
         expression: MiniKotlinParser.ExpressionContext,
         indent: String,
+        scope: Map<String, String>,
         consume: (String) -> String
     ): String {
         return when {
-            !containsCall(expression) -> consume(compileExpression(expression))
+            !containsCall(expression) -> consume(compileExpression(expression, scope))
             expression is MiniKotlinParser.FunctionCallExprContext -> {
                 val tmp = "__arg${allocArg()}"
                 val funcName = if (expression.IDENTIFIER().text == "println") "Prelude.println"
                 else expression.IDENTIFIER().text
                 val argList = expression.argumentList()?.expression() ?: emptyList()
                 val inner = "$indent\t"
-                liftArgs(argList, 0, indent, emptyList()) { argExprs ->
+                liftArgs(argList, 0, indent, emptyList(), scope) { argExprs ->
                     val argStr = argExprs.joinToString(", ")
                     "$indent$funcName($argStr, ($tmp) -> {\n$inner${consume(tmp)}\n$indent});"
                 }
@@ -338,18 +362,18 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
                 val op = expression.getChild(1).text
                 val left = expression.getChild(0) as MiniKotlinParser.ExpressionContext
                 val right = expression.getChild(2) as MiniKotlinParser.ExpressionContext
-                liftExpr(left, indent) { l ->
-                    liftExpr(right, indent) { r ->
+                liftExpr(left, indent, scope) { l ->
+                    liftExpr(right, indent, scope) { r ->
                         consume("($l $op $r)")
                     }
                 }
             }
             expression is MiniKotlinParser.NotExprContext -> {
-                liftExpr(expression.expression(), indent) { inner ->
+                liftExpr(expression.expression(), indent, scope) { inner ->
                     consume("!$inner")
                 }
             }
-            else -> consume(compileExpression(expression))
+            else -> consume(compileExpression(expression, scope))
         }
     }
 
@@ -358,11 +382,12 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         index: Int,
         indent: String,
         acc: List<String>,
+        scope: Map<String, String>,
         consume: (List<String>) -> String
     ): String {
         if (index >= args.size) return consume(acc)
-        return liftExpr(args[index], indent) { argCode ->
-            liftArgs(args, index + 1, indent, acc + argCode, consume)
+        return liftExpr(args[index], indent, scope) { argCode ->
+            liftArgs(args, index + 1, indent, acc + argCode, scope, consume)
         }
     }
 
