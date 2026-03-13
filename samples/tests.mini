@@ -188,4 +188,8 @@ fun main(): Unit {
     var r27: Int = ifPrint(5) + ifPrint(4)
     if (r27 == 12) { println("t27 passed") } else { println("t27 FAILED") }
 
+    if (isOdd(5)) { println("t28 passed") } else { println("t28 FAILED") }
+
+    if (!isEven(5)) { println("t29 passed") } else { println("t29 FAILED") }
+
 }

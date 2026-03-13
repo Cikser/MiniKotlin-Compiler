@@ -197,15 +197,24 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
     }
 
     fun compileIfStatement(ifStatement: MiniKotlinParser.IfStatementContext, rest: String, indent: String): String {
-        val expression = compileExpression(ifStatement.expression())
-        val block = compileIfBlock(ifStatement.block()[0], indent)
-        var result = "${indent}if ($expression) $block"
-        if (ifStatement.ELSE() != null) {
-            val elseBlock = compileIfBlock(ifStatement.block()[1], indent)
-            result += "\n${indent}else $elseBlock"
+        return if (containsCall(ifStatement.expression())) {
+            liftExpr(ifStatement.expression(), indent) { cond ->
+                val block = compileIfBlock(ifStatement.block()[0], indent)
+                var result = "${indent}if ($cond) $block"
+                if (ifStatement.ELSE() != null) {
+                    result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent)}"
+                }
+                result + "\n$rest"
+            }
+        } else {
+            val expression = compileExpression(ifStatement.expression())
+            val block = compileIfBlock(ifStatement.block()[0], indent)
+            var result = "${indent}if ($expression) $block"
+            if (ifStatement.ELSE() != null) {
+                result += "\n${indent}else ${compileIfBlock(ifStatement.block()[1], indent)}"
+            }
+            result + "\n$rest"
         }
-        result += "\n$rest"
-        return result
     }
 
     fun containsCall(expression: MiniKotlinParser.ExpressionContext): Boolean {
