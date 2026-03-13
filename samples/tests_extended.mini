@@ -221,6 +221,11 @@ fun chainedAssign(dummy: Int): Int {
     return x
 }
 
+fun printTwice(msg: String): Unit {
+    println(msg)
+    println(msg)
+}
+
 fun main(): Unit {
     var r1: Int = testAssignment1(0)
     if (r1 == 120) { println("t01 passed") } else { println("t01 FAILED") }
@@ -309,4 +314,6 @@ fun main(): Unit {
 
     var r30: Int = countDownWhile(0)
     if (r30 == 0) { println("t30 passed") } else { println("t30 FAILED") }
+
+    printTwice("Hello world!")
 }

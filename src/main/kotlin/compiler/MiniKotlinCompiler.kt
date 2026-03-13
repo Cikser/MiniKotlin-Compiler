@@ -51,12 +51,14 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
             "$indent\tfinal $pType[] $pName = { _$pName };"
         }
         val paramStrWithShadow = if (paramList.isEmpty()) {
-            "Continuation<$type> __continuation"
+            "Continuation<$type> __k"
         } else {
             paramList.joinToString(", ") { "${javaType(it.type().text)} _${it.IDENTIFIER().text}" } +
-                    ", Continuation<$type> __continuation"
+                    ", Continuation<$type> __k"
         }
-        val block = compileBlock(function.block(), "", indent, initialScope)
+        val implicitReturn = if (type == "Void" && name != "main")
+            "$indent\t\t__k.accept(null);\n$indent\t\treturn;\n" else ""
+        val block = compileBlock(function.block(), implicitReturn, indent, initialScope)
         val finalBlock = if (shadowParams.isEmpty()) block
         else "{\n$shadowParams\n${block.substring(1)}"
 
@@ -252,10 +254,10 @@ class MiniKotlinCompiler : MiniKotlinBaseVisitor<String>() {
         scope: Map<String, String>
     ): String {
         if (returnStatement.expression() == null) {
-            return "__continuation.accept(null);\n${indent}return;"
+            return "__k.accept(null);\n${indent}return;"
         }
         return liftExpr(returnStatement.expression(), indent, scope) { result ->
-            "__continuation.accept($result);\n${indent}return;"
+            "__k.accept($result);\n${indent}return;"
         }
     }
 
